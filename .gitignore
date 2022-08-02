@@ -1,4 +1,4 @@
 build/*
 *.code-workspace
-paxlinux
+paxfbdev
 .vscode
