@@ -8,9 +8,10 @@ static FILE *fbdev;
 int main(int argc, char **argv) {
     if (disp_make_buf("fb0")) {
     
-        pax_background(&gbuf, 0xff007fff);
-        pax_draw_circle(&gbuf, 0xffff0000, gbuf.width / 2, gbuf.height / 2, gbuf.height / 4);
+        // pax_background(&gbuf, 0xff007fff);
+        // pax_draw_circle(&gbuf, 0xffff0000, gbuf.width / 2, gbuf.height / 2, gbuf.height / 4);
         //disp_flush();
+        fflush(stdout);
         
         fseek(fbdev, 0, SEEK_SET);
         char dummy[1024];
@@ -93,7 +94,7 @@ bool disp_make_buf(const char *fb_name) {
             if (!pax_last_error) {
                 // Open device.
                 snprintf(temp, sizeof(temp)-1, "/dev/%s", fb_name);
-                fbdev = fopen(temp, "rb");
+                fbdev = fopen(temp, "wb");
                 if (fbdev != NULL) {
                     return true;
                 } else {
