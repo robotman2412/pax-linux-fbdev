@@ -1,29 +1,30 @@
 
 #include "main.h"
 
-static int stride;
-pax_buf_t gbuf;
-static FILE *fbdev;
+pax_buf_t       gbuf;
+static FILE    *fbdev;
+static uint8_t *fbmem;
+static size_t   fbsize;
+static int      stride;
 
 int main(int argc, char **argv) {
-    if (disp_make_buf("fb0")) {
     
-        // pax_background(&gbuf, 0xff007fff);
-        // pax_draw_circle(&gbuf, 0xffff0000, gbuf.width / 2, gbuf.height / 2, gbuf.height / 4);
-        //disp_flush();
-        fflush(stdout);
-        
-        fseek(fbdev, 0, SEEK_SET);
-        char dummy[1024];
-        memset(dummy, 0, sizeof(dummy));
-        fwrite(dummy, 1, sizeof(dummy), fbdev);
-        fflush(fbdev);
-        
-        while (1);
-        
-    } else {
-        printf("Could not make the funny :(\n");
-    }
+    if (!disp_make_buf("/dev/fb0")) return 1;
+    
+    // Hide cursor (so it doesn't overwrite the framebuffer).
+    fputs("\033[?25l", stdout);
+    fflush(stdout);
+    
+    // Dummy thing in the background.
+    pax_background(&gbuf, 0xff007fff);
+    pax_draw_circle(&gbuf, 0xffff0000, gbuf.width / 2, gbuf.height / 2, gbuf.height / 4);
+    
+    // Wait for enter press.
+    char dummy;
+    fread(&dummy, 1, 1, stdin);
+    
+    // Reveal cursor.
+    fputs("\033[?25h", stdout);
     
     return 0;
 }
@@ -56,66 +57,43 @@ char *dump_file(const char *path) {
 }
 
 bool disp_make_buf(const char *fb_name) {
-    char temp[1024+strlen(fb_name)];
-    
-    // Read size file.
-    snprintf(temp, sizeof(temp)-1, "/sys/class/graphics/%s/virtual_size", fb_name);
-    char *str_size   = dump_file(temp);
-    
-    // Read stride file.
-    snprintf(temp, sizeof(temp)-1, "/sys/class/graphics/%s/stride", fb_name);
-    char *str_stride = dump_file(temp);
-    
-    // Make sure we have all of them.
-    if (str_size && str_stride) {
-        // Parse size.
-        int width  = 0;
-        int height = 0;
-        sscanf(str_size, "%d,%d", &width, &height);
-        
-        // Parse stride.
-        stride     = atoi(str_stride);
-        
-        // Validate data.
-        if (width < 2 || height < 2 || stride < 2) {
-            // Too bad, clean up.
-            printf("Invalid format.\n");
-            free(str_size);
-            free(str_stride);
-            return false;
-            
-        } else {
-            // Good data; make PAX buffer.
-            printf("Initialising buffer %dx%d with stride %d.\n", width, height, stride);
-            pax_buf_init(&gbuf, NULL, width, height, PAX_BUF_32_8888ARGB);
-            free(str_size);
-            free(str_stride);
-            
-            if (!pax_last_error) {
-                // Open device.
-                snprintf(temp, sizeof(temp)-1, "/dev/%s", fb_name);
-                fbdev = fopen(temp, "wb");
-                if (fbdev != NULL) {
-                    return true;
-                } else {
-                    printf("Error opening framebuffer device.\n");
-                    return false;
-                }
-                
-            } else {
-                // PAX error.
-                printf("Error in PAX buffer init.\n");
-                return false;
-            }
-        }
-        
-    } else {
-        // Too bad, clean up.
-        if (str_size)   free(str_size);
-        if (str_stride) free(str_stride);
-        printf("Error loading descriptions.\n");
+    // Open framebuffer file.
+    fbdev = fopen(fb_name, "r+b");
+    if (!fbdev) {
+        perror("Cannot open framebuffer device");
         return false;
     }
+    
+    // Detect buffer type.
+    struct fb_var_screeninfo vinfo;
+    int res = ioctl(fbdev->_fileno, FBIOGET_VSCREENINFO, &vinfo);
+    if (res) {
+        perror("Cannot get framebuffer info");
+        fclose(fbdev);
+        return false;
+    }
+    
+    // Memory map the framebuffer.
+    fbsize = vinfo.xres * vinfo.yres * (vinfo.bits_per_pixel / 8);
+    stride = vinfo.xres * (vinfo.bits_per_pixel / 8);
+    
+    fbmem = mmap(0, fbsize, PROT_READ | PROT_WRITE, MAP_SHARED, fbdev->_fileno, 0);
+    if (!fbmem) {
+        perror("Cannot memory map framebuffer");
+        fclose(fbdev);
+        return false;
+    }
+    
+    // Create a PAX buffer with it.
+    pax_buf_init(&gbuf, fbmem, vinfo.xres, vinfo.yres, PAX_BUF_32_8888ARGB);
+    
+    if (pax_last_error) {
+        fprintf(stderr, "Cannot initialise graphics context");
+        return false;
+    }
+    
+    return true;
+    
 }
 
 void disp_flush() {
