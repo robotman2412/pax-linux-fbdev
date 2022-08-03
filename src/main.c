@@ -12,16 +12,78 @@ int main(int argc, char **argv) {
     if (!disp_make_buf("/dev/fb0")) return 1;
     
     // Hide cursor (so it doesn't overwrite the framebuffer).
-    fputs("\033[?25l", stdout);
+    // fputs("\033[?25l", stdout);
     fflush(stdout);
+    pax_mark_dirty0(&gbuf);
     
-    // Dummy thing in the background.
-    pax_background(&gbuf, 0xff007fff);
-    pax_draw_circle(&gbuf, 0xffff0000, gbuf.width / 2, gbuf.height / 2, gbuf.height / 4);
+    // Load the funny background image.
+    FILE *background_fd = fopen("/home/julian/Pictures/epic.png", "rb");
+    bool do_bg = true;
+    pax_buf_t background;
+    if (!pax_decode_png_fd(&background, background_fd, PAX_BUF_32_8888ARGB, CODEC_FLAG_OPTIMAL)) {
+        printf("Background error.");
+        do_bg = false;
+    }
+    pax_enable_multicore(0);
     
-    // Wait for enter press.
-    char dummy;
-    fread(&dummy, 1, 1, stdin);
+    uint64_t lastMicros = microTime();
+    uint64_t dm = lastMicros;
+    int numArcs = 3;
+    float arcDx = 120;
+    for (int i = 0; i < 150000000; i++) {
+		uint64_t  micros = microTime() - dm;
+        uint64_t  millis = micros / 1000;
+		
+		pax_col_t color0 = pax_col_ahsv(127, millis * 255 / 8000 + 127, 255, 255);
+		pax_col_t color1 = pax_col_ahsv(127, millis * 255 / 8000, 255, 255);
+        if (do_bg) {
+            pax_draw_image(&gbuf, &background, 0, 0);
+        } else {
+		    pax_background(&gbuf, 0xff000000);
+        }
+		
+		// Epic arcs demo.
+		float a0 = millis / 5000.0 * M_PI;
+		float a1 = fmodf(a0, M_PI * 4) - M_PI * 2;
+		float a2 = millis / 8000.0 * M_PI;
+        
+        for (int x = 0; x < numArcs; x++) {
+            pax_push_2d(&gbuf);
+            if (numArcs > 1) pax_apply_2d(&gbuf, matrix_2d_translate(-arcDx/2*(numArcs-1)+arcDx*x, 0));
+            pax_apply_2d(&gbuf, matrix_2d_translate(gbuf.width * 0.5f, gbuf.height * 0.5f));
+            pax_apply_2d(&gbuf, matrix_2d_scale(200, 200));
+            
+            pax_apply_2d(&gbuf, matrix_2d_rotate(-a2));
+            pax_draw_arc(&gbuf, color0, 0, 0, 1, a0 + a2, a0 + a1 + a2);
+            
+            pax_apply_2d(&gbuf, matrix_2d_rotate(a0 + a2));
+            pax_push_2d(&gbuf);
+            pax_apply_2d(&gbuf, matrix_2d_translate(1, 0));
+            pax_draw_rect(&gbuf, color1, -0.25f, -0.25f, 0.5f, 0.5f);
+            pax_pop_2d(&gbuf);
+            
+            pax_apply_2d(&gbuf, matrix_2d_rotate(a1));
+            pax_push_2d(&gbuf);
+            pax_apply_2d(&gbuf, matrix_2d_translate(1, 0));
+            pax_apply_2d(&gbuf, matrix_2d_rotate(-a0 - a1 + M_PI * 0.5));
+            pax_draw_tri(&gbuf, color1, 0.25f, 0.0f, -0.125f, 0.2165f, -0.125f, -0.2165f);
+            pax_pop_2d(&gbuf);
+            
+            pax_pop_2d(&gbuf);
+        }
+        
+        // Make an FPS counter.
+        uint64_t spent = micros - lastMicros;
+        lastMicros     = micros;
+        float fps      = 1000000.0 / spent;
+        
+        char temp[32];
+        snprintf(temp, 32, "%5.1f FPS\n", fps);
+        // fputs(temp, stdout);
+        pax_draw_text(&gbuf, 0xffffffff, pax_font_sky_mono, 36, 5, 5, temp);
+        
+        disp_flush();
+    }
     
     // Reveal cursor.
     fputs("\033[?25h", stdout);
@@ -85,7 +147,7 @@ bool disp_make_buf(const char *fb_name) {
     }
     
     // Create a PAX buffer with it.
-    pax_buf_init(&gbuf, fbmem, vinfo.xres, vinfo.yres, PAX_BUF_32_8888ARGB);
+    pax_buf_init(&gbuf, NULL, vinfo.xres, vinfo.yres, PAX_BUF_32_8888ARGB);
     
     if (pax_last_error) {
         fprintf(stderr, "Cannot initialise graphics context");
@@ -99,38 +161,21 @@ bool disp_make_buf(const char *fb_name) {
 void disp_flush() {
     pax_join();
     
-    size_t pax_index = 0;
-    size_t dev_delta = stride - gbuf.width * 4;
-    
-    union {
-        pax_col_t raw;
-        struct {
-            uint8_t red;
-            uint8_t green;
-            uint8_t blue;
-            uint8_t alpha;
-        };
-        uint8_t   arr[4];
-    } pixel;
-    const uint8_t dummy = 0;
-    
-    fseek(fbdev, 0, SEEK_SET);
-    for (int y = 0; y < gbuf.height; y++) {
-        for (int x = 0; x < gbuf.width; x++, pax_index++) {
-            // Convert 32bpp ARGB...
-            pixel.raw = gbuf.buf_32bpp[pax_index];
-            // To 32bpp BGRx...
-            fwrite(&pixel.blue,  1, 1, fbdev);
-            fwrite(&pixel.green, 1, 1, fbdev);
-            fwrite(&pixel.red,   1, 1, fbdev);
-            fwrite(&dummy,       1, 1, fbdev);
-        }
-        // Seek with the STRIDE.
-        fseek(fbdev, dev_delta, SEEK_CUR);
-    }
-    fflush(fbdev);
+    memcpy(fbmem, gbuf.buf, fbsize);
 }
 
 void disp_sync() {
     pax_join();
+}
+
+uint64_t milliTime() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+uint64_t microTime() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000000 + tv.tv_usec;
 }
