@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
     }
     
     // Reveal cursor.
-    fputs("\033[?25h", stdout);
+    // fputs("\033[?25h", stdout);
     
     return 0;
 }
