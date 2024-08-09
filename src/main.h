@@ -2,7 +2,6 @@
 #pragma once
 
 #include <pax_gfx.h>
-#include <pax_codecs.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>

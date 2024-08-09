@@ -20,15 +20,15 @@ int main(int argc, char **argv) {
     FILE *background_fd = fopen("/home/julian/Pictures/epic.png", "rb");
     bool do_bg = true;
     pax_buf_t background;
-    if (!pax_decode_png_fd(&background, background_fd, PAX_BUF_32_8888ARGB, CODEC_FLAG_OPTIMAL)) {
-        printf("Background error.");
+    // if (!pax_decode_png_fd(&background, background_fd, PAX_BUF_32_8888ARGB, CODEC_FLAG_OPTIMAL)) {
+        // printf("Background error.");
         do_bg = false;
-    }
+    // }
     pax_enable_multicore(0);
     
     uint64_t lastMicros = microTime();
     uint64_t dm = lastMicros;
-    int numArcs = 3;
+    int numArcs = 1;
     float arcDx = 120;
     for (int i = 0; i < 150000000; i++) {
 		uint64_t  micros = microTime() - dm;
@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
         float fps      = 1000000.0 / spent;
         
         char temp[32];
-        snprintf(temp, 32, "%5.1f FPS\n", fps);
+        snprintf(temp, 31, "%5.1f FPS\n", fps);
         // fputs(temp, stdout);
         pax_draw_text(&gbuf, 0xffffffff, pax_font_sky_mono, 36, 5, 5, temp);
         
